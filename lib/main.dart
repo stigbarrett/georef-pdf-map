@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:flutter/services.dart';
 
 // Georeference data class
 class GeoReference {
@@ -56,6 +57,8 @@ class MapHomePage extends StatefulWidget {
 }
 
 class _MapHomePageState extends State<MapHomePage> {
+  static const platform = MethodChannel('com.example.map_app/pdf');
+  
   // Map controller
   final MapController _mapController = MapController();
   
@@ -104,6 +107,76 @@ class _MapHomePageState extends State<MapHomePage> {
     _loadSavedSettings();
     _loadSavedTracks();
     _requestPermissions();
+    _setupMethodChannel();
+  }
+  
+  void _setupMethodChannel() {
+    platform.setMethodCallHandler((call) async {
+      if (call.method == 'onNewPdf') {
+        final String? pdfPath = call.arguments as String?;
+        if (pdfPath != null) {
+          _handleIncomingPdf(pdfPath);
+        }
+      }
+    });
+    
+    // Check if app was opened with a PDF
+    platform.invokeMethod('getInitialPdfPath').then((path) {
+      if (path != null) {
+        _handleIncomingPdf(path as String);
+      }
+    });
+  }
+  
+  Future<void> _handleIncomingPdf(String pdfUri) async {
+    try {
+      // Convert URI to file path
+      final uri = Uri.parse(pdfUri);
+      File file;
+      
+      if (uri.scheme == 'file') {
+        file = File(uri.toFilePath());
+      } else {
+        // For content URIs, we would need additional handling
+        // For now, just show an error
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot open PDF from this source. Please use Load PDF button instead.')),
+        );
+        return;
+      }
+      
+      setState(() {
+        _pdfFile = file;
+        _showPdfOverlay = false;
+      });
+      
+      // Try to extract georeference automatically
+      final geoRef = await _extractGeoReferenceFromPDF(file);
+      
+      if (!mounted) return;
+      
+      if (geoRef != null) {
+        if (geoRef.corners.isEmpty) {
+          _showCoordinateInputDialog(isCondes: true);
+        } else {
+          setState(() {
+            _pdfCorners = geoRef.corners;
+            _showPdfOverlay = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Georeference detected automatically!')),
+          );
+        }
+      } else {
+        _showCoordinateInputDialog();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error opening PDF: $e')),
+      );
+    }
   }
 
   @override
@@ -320,41 +393,62 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   Future<void> _pickPdfFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-    );
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        allowMultiple: false,
+      );
 
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _pdfFile = File(result.files.single.path!);
-        _showPdfOverlay = false;
-      });
-      
-      // Try to extract georeference automatically
-      final geoRef = await _extractGeoReferenceFromPDF(_pdfFile!);
-      
-      if (!mounted) return;
-      
-      if (geoRef != null) {
-        // Automatic detection succeeded
-        if (geoRef.corners.isEmpty) {
-          // Condes GeoPDF detected - show helpful message
-          _showCoordinateInputDialog(isCondes: true);
-        } else {
-          // Full georeference data available
+      if (result != null) {
+        if (result.files.single.path != null) {
           setState(() {
-            _pdfCorners = geoRef.corners;
-            _showPdfOverlay = true;
+            _pdfFile = File(result.files.single.path!);
+            _showPdfOverlay = false;
           });
+          
+          // Try to extract georeference automatically
+          final geoRef = await _extractGeoReferenceFromPDF(_pdfFile!);
+          
+          if (!mounted) return;
+          
+          if (geoRef != null) {
+            // Automatic detection succeeded
+            if (geoRef.corners.isEmpty) {
+              // Condes GeoPDF detected - show helpful message
+              _showCoordinateInputDialog(isCondes: true);
+            } else {
+              // Full georeference data available
+              setState(() {
+                _pdfCorners = geoRef.corners;
+                _showPdfOverlay = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Georeference detected automatically!')),
+              );
+            }
+          } else {
+            // Automatic detection failed, show manual input dialog
+            _showCoordinateInputDialog();
+          }
+        } else {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Georeference detected automatically!')),
+            const SnackBar(content: Text('Could not get file path. Please try again.')),
           );
         }
       } else {
-        // Automatic detection failed, show manual input dialog
-        _showCoordinateInputDialog();
+        // User cancelled the file picker
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No file selected')),
+        );
       }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking file: $e')),
+      );
     }
   }
 
