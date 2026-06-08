@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   runApp(const MyApp());
@@ -464,6 +465,16 @@ class _MapHomePageState extends State<MapHomePage> {
   }
   
   Future<void> _exportTrackToGPX(Map<String, dynamic> track) async {
+    // Request storage permission if not granted
+    final status = await ph.Permission.storage.request();
+    if (!status.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Storage permission is required to export GPX')),
+      );
+      return;
+    }
+    
     final builder = xml.XmlBuilder();
     builder.processing('xml', 'version="1.0" encoding="UTF-8"');
     builder.element('gpx', attributes: {
@@ -486,17 +497,17 @@ class _MapHomePageState extends State<MapHomePage> {
     
     final gpxXml = builder.buildDocument().toXmlString(pretty: true);
     
-    // Use file picker to save the file
-    // Note: This is a simplified version - in production you'd want to handle file permissions better
+    // Save to Downloads directory
     try {
-      final directory = await Directory.systemTemp.createTemp();
-      final file = File('${directory.path}/${track['name'].toString().replaceAll(' ', '_')}.gpx');
+      final directory = await getDownloadsDirectory();
+      final fileName = '${track['name'].toString().replaceAll(' ', '_')}.gpx';
+      final file = File('${directory.path}/$fileName');
       await file.writeAsString(gpxXml);
       
       if (!mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GPX exported to ${file.path}')),
+        SnackBar(content: Text('GPX exported to Downloads: $fileName')),
       );
     } catch (e) {
       if (!mounted) return;
