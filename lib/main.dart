@@ -11,6 +11,22 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
+
+// Georeference data class
+class GeoReference {
+  final List<LatLng> corners;
+  final double rotation;
+  final double scale;
+  final String crs; // Coordinate Reference System
+  
+  GeoReference({
+    required this.corners,
+    required this.rotation,
+    required this.scale,
+    required this.crs,
+  });
+}
 
 void main() {
   runApp(const MyApp());
@@ -312,33 +328,154 @@ class _MapHomePageState extends State<MapHomePage> {
     if (result != null && result.files.single.path != null) {
       setState(() {
         _pdfFile = File(result.files.single.path!);
-        _showPdfOverlay = true;
+        _showPdfOverlay = false;
       });
       
-      // For demonstration, we'll create default corners
-      // In a real app, you would parse the PDF for georeference information
-      // or ask the user to input coordinates
-      _setPdfCornersDemo();
+      // Try to extract georeference automatically
+      final geoRef = await _extractGeoReferenceFromPDF(_pdfFile!);
+      
+      if (!mounted) return;
+      
+      if (geoRef != null) {
+        // Automatic detection succeeded
+        setState(() {
+          _pdfCorners = geoRef.corners;
+          _showPdfOverlay = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Georeference detected automatically!')),
+        );
+      } else {
+        // Automatic detection failed, show manual input dialog
+        _showCoordinateInputDialog();
+      }
     }
   }
 
-  void _setPdfCornersDemo() {
-    if (_currentLocationData != null && _currentLocationData!.latitude != null && _currentLocationData!.longitude != null) {
-      double lat = _currentLocationData!.latitude!;
-      double lng = _currentLocationData!.longitude!;
+  void _showCoordinateInputDialog() {
+    // Show dialog for manual coordinate input
+    final lat1Controller = TextEditingController();
+    final lon1Controller = TextEditingController();
+    final lat2Controller = TextEditingController();
+    final lon2Controller = TextEditingController();
+    final lat3Controller = TextEditingController();
+    final lon3Controller = TextEditingController();
+    final lat4Controller = TextEditingController();
+    final lon4Controller = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter PDF Coordinates'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Enter the 4 corner coordinates (in decimal degrees):'),
+              const SizedBox(height: 10),
+              TextField(
+                controller: lat1Controller,
+                decoration: const InputDecoration(labelText: 'Top-Left Latitude', hintText: '55.6761'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lon1Controller,
+                decoration: const InputDecoration(labelText: 'Top-Left Longitude', hintText: '12.5683'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lat2Controller,
+                decoration: const InputDecoration(labelText: 'Top-Right Latitude', hintText: '55.6810'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lon2Controller,
+                decoration: const InputDecoration(labelText: 'Top-Right Longitude', hintText: '12.5710'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lat3Controller,
+                decoration: const InputDecoration(labelText: 'Bottom-Right Latitude', hintText: '55.6710'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lon3Controller,
+                decoration: const InputDecoration(labelText: 'Bottom-Right Longitude', hintText: '12.5710'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lat4Controller,
+                decoration: const InputDecoration(labelText: 'Bottom-Left Latitude', hintText: '55.6661'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextField(
+                controller: lon4Controller,
+                decoration: const InputDecoration(labelText: 'Bottom-Left Longitude', hintText: '12.5683'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Parse and apply coordinates
+              try {
+                final corners = [
+                  LatLng(double.parse(lat1Controller.text), double.parse(lon1Controller.text)),
+                  LatLng(double.parse(lat2Controller.text), double.parse(lon2Controller.text)),
+                  LatLng(double.parse(lat3Controller.text), double.parse(lon3Controller.text)),
+                  LatLng(double.parse(lat4Controller.text), double.parse(lon4Controller.text)),
+                ];
+                
+                setState(() {
+                  _pdfCorners = corners;
+                  _showPdfOverlay = true;
+                });
+                
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('PDF coordinates applied successfully')),
+                );
+              } catch (e) {
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Invalid coordinates: $e')),
+                );
+              }
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Future<GeoReference?> _extractGeoReferenceFromPDF(File pdfFile) async {
+    try {
+      // Load the PDF document
+      final PdfDocument document = PdfDocument(inputBytes: await pdfFile.readAsBytes());
       
-      // Create a 1km x 1km box around current position
-      double deltaLat = 0.005; // approximately 500 meters
-      double deltaLng = 0.005; // approximately 500 meters (varies by latitude)
+      // Try to extract georeference metadata from PDF
+      // This is a simplified implementation - real georeferencing would require more complex parsing
+      // For now, we'll return null and use a manual input approach if needed
       
-      setState(() {
-        _pdfCorners = [
-          LatLng(lat + deltaLat, lng - deltaLng), // Top-left
-          LatLng(lat + deltaLat, lng + deltaLng), // Top-right
-          LatLng(lat - deltaLat, lng + deltaLng), // Bottom-right
-          LatLng(lat - deltaLat, lng - deltaLng), // Bottom-left
-        ];
-      });
+      // TODO: Implement proper georeference extraction
+      // This would involve:
+      // 1. Parsing PDF metadata for coordinate system information
+      // 2. Looking for GeoPDF metadata
+      // 3. Extracting transformation matrices
+      // 4. Parsing coordinate reference systems
+      
+      document.dispose();
+      return null;
+    } catch (e) {
+      print('Error extracting georeference from PDF: $e');
+      return null;
     }
   }
 
@@ -703,6 +840,11 @@ class _MapHomePageState extends State<MapHomePage> {
                             onPressed: _pickPdfFile,
                             icon: const Icon(Icons.upload_file),
                             label: const Text('Load PDF'),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: _pdfFile != null ? _showCoordinateInputDialog : null,
+                            icon: const Icon(Icons.edit_location),
+                            label: const Text('Set Coordinates'),
                           ),
                           ElevatedButton.icon(
                             onPressed: _punchZoomAndRotate,
