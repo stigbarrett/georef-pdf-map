@@ -465,16 +465,6 @@ class _MapHomePageState extends State<MapHomePage> {
   }
   
   Future<void> _exportTrackToGPX(Map<String, dynamic> track) async {
-    // Request storage permission if not granted
-    final status = await ph.Permission.storage.request();
-    if (!status.isGranted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Storage permission is required to export GPX')),
-      );
-      return;
-    }
-    
     final builder = xml.XmlBuilder();
     builder.processing('xml', 'version="1.0" encoding="UTF-8"');
     builder.element('gpx', attributes: {
@@ -497,17 +487,9 @@ class _MapHomePageState extends State<MapHomePage> {
     
     final gpxXml = builder.buildDocument().toXmlString(pretty: true);
     
-    // Save to Downloads directory
+    // Save to app's internal storage (no special permissions needed)
     try {
-      final directory = await getDownloadsDirectory();
-      if (directory == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not access Downloads directory')),
-        );
-        return;
-      }
-      
+      final directory = await getApplicationDocumentsDirectory();
       final fileName = '${track['name'].toString().replaceAll(' ', '_')}.gpx';
       final file = File('${directory.path}/$fileName');
       await file.writeAsString(gpxXml);
@@ -515,7 +497,7 @@ class _MapHomePageState extends State<MapHomePage> {
       if (!mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GPX exported to Downloads: $fileName')),
+        SnackBar(content: Text('GPX exported to app storage: $fileName')),
       );
     } catch (e) {
       if (!mounted) return;
