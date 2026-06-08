@@ -394,21 +394,25 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _pickPdfFile() async {
     try {
+      // Use a simpler file picker that won't show our app as an option
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: false,
+        withData: false, // Don't read file data, just get path
       );
 
       if (result != null) {
         if (result.files.single.path != null) {
+          final file = File(result.files.single.path!);
+          
           setState(() {
-            _pdfFile = File(result.files.single.path!);
+            _pdfFile = file;
             _showPdfOverlay = false;
           });
           
           // Try to extract georeference automatically
-          final geoRef = await _extractGeoReferenceFromPDF(_pdfFile!);
+          final geoRef = await _extractGeoReferenceFromPDF(file);
           
           if (!mounted) return;
           
@@ -439,10 +443,7 @@ class _MapHomePageState extends State<MapHomePage> {
         }
       } else {
         // User cancelled the file picker
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No file selected')),
-        );
+        // Don't show a message for cancellation
       }
     } catch (e) {
       if (!mounted) return;
