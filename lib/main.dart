@@ -128,20 +128,15 @@ class _MapHomePageState extends State<MapHomePage> {
     });
   }
   
-  Future<void> _handleIncomingPdf(String pdfUri) async {
+  Future<void> _handleIncomingPdf(String pdfPath) async {
     try {
-      // Convert URI to file path
-      final uri = Uri.parse(pdfUri);
-      File file;
+      // The path is now a local file (copied from cloud to cache)
+      final file = File(pdfPath);
       
-      if (uri.scheme == 'file') {
-        file = File(uri.toFilePath());
-      } else {
-        // For content URIs, we would need additional handling
-        // For now, just show an error
+      if (!await file.exists()) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot open PDF from this source. Please use Load PDF button instead.')),
+          const SnackBar(content: Text('PDF file not found')),
         );
         return;
       }
@@ -394,17 +389,29 @@ class _MapHomePageState extends State<MapHomePage> {
 
   Future<void> _pickPdfFile() async {
     try {
-      // Use a simpler file picker that won't show our app as an option
+      // Use file picker that works with cloud services
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: false,
-        withData: false, // Don't read file data, just get path
+        withData: true, // Enable data reading for cloud services
       );
 
       if (result != null) {
+        String? filePath;
+        
         if (result.files.single.path != null) {
-          final file = File(result.files.single.path!);
+          filePath = result.files.single.path!;
+        } else if (result.files.single.bytes != null) {
+          // If the file is in cloud and returned as bytes, save it temporarily
+          final tempDir = await getTemporaryDirectory();
+          final tempFile = File('${tempDir.path}/${result.files.single.name}');
+          await tempFile.writeAsBytes(result.files.single.bytes!);
+          filePath = tempFile.path;
+        }
+        
+        if (filePath != null) {
+          final file = File(filePath);
           
           setState(() {
             _pdfFile = file;
