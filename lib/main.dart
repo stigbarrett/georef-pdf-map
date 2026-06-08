@@ -500,6 +500,14 @@ class _MapHomePageState extends State<MapHomePage> {
     // Save to Downloads directory
     try {
       final directory = await getDownloadsDirectory();
+      if (directory == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not access Downloads directory')),
+        );
+        return;
+      }
+      
       final fileName = '${track['name'].toString().replaceAll(' ', '_')}.gpx';
       final file = File('${directory.path}/$fileName');
       await file.writeAsString(gpxXml);
